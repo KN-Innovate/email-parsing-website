@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parsed Emails for {{ hotel_name }}</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-..." crossorigin="anonymous">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <style>
+        body {
+            background-color: #f8f9fa; /* Light gray background */
+        }
+        .header-section {
+            margin-top: 20px;
+            margin-bottom: 20px;
+        }
+        .parsed-email-stats p {
+            font-size: 1.1rem;
+        }
+        .email-body {
+            max-width: 300px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        /* Custom modal styles */
+        .modal-header {
+            background-color: #4e79a7;
+            color: white;
+        }
+        .btn-primary-custom {
+            background-color: #4e79a7;
+            border-color: #4e79a7;
+        }
+        .btn-primary-custom:hover {
+            background-color: #3c608c;
+            border-color: #3c608c;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Email Analyzer</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" 
+                    aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Header Section -->
+        <div class="header-section text-center">
+            <h1>Parsed Emails for "{{ hotel_name }}"</h1>
+            <div class="parsed-email-stats d-flex justify-content-center">
+                <div class="me-4">
+                    <p><strong>Emails Parsed:</strong> {{ emails|length }}</p>
+                </div>
+                <div>
+                    <p><strong>PII Removed:</strong> {{ pii_count }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="d-flex justify-content-between mb-3">
+            <form method="POST" action="/save-emails" id="saveEmailsForm">
+                <button type="button" class="btn btn-secondary me-2" onclick="navigateToMain()">Cancel</button>
+                <button type="submit" class="btn btn-primary-custom">Save Emails</button>
+            </form>
+            <button class="btn btn-success" onclick="exportToCSV()">
+                <i class="bi bi-file-earmark-excel"></i> Export to CSV
+            </button>
+        </div>
+
+        <!-- Search Form -->
+        <div class="mb-3">
+            <form id="searchForm" class="d-flex">
+                <input class="form-control me-2" type="search" placeholder="Search Emails" aria-label="Search" id="searchQuery">
+                <button class="btn btn-outline-success" type="submit"><i class="bi bi-search"></i> Search</button>
+            </form>
+        </div>
+
+        <!-- Table of Parsed Emails -->
+        <div class="table-responsive">
+            <table class="table table-hover table-bordered align-middle">
+                <thead class="table-primary">
+                    <tr>
+                        <th scope="col">Tags</th>
+                        <th scope="col">From</th>
+                        <th scope="col">To</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Subject</th>
+                        <th scope="col">Body Preview</th>
+                        <th scope="col">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for email in emails %}
+                    <tr>
+                        <td>{{ email.Label }}</td>
+                        <td>{{ email.From }}</td>
+                        <td>{{ email.To }}</td>
+                        <td>{{ email.Date }}</td>
+                        <td>{{ email.Subject }}</td>
+                        <td class="email-body">{{ email.Body[:50] }}...</td>
+                        <td>
+                            <button 
+                                class="btn btn-warning btn-sm edit-btn" 
+                                data-bs-toggle="modal" 
+                                data-bs-target="#editModal" 
+                                onclick='populateEditForm({{ email|tojson }})'>
+                                <i class="bi bi-pencil-square"></i> Edit
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+
+        <!-- Edit Email Modal -->
+        <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="editModalLabel">Edit Email</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="editEmailForm">
+                            <div class="mb-3">
+                                <label for="tags" class="form-label">Tags</label>
+                                <input type="text" class="form-control" id="tags" name="tags" placeholder="Enter Tags">
+                            </div>
+                            <div class="mb-3">
+                                <label for="from" class="form-label">From</label>
+                                <input type="email" class="form-control" id="from" name="from" placeholder="Enter Sender's Email">
+                            </div>
+                            <div class="mb-3">
+                                <label for="to" class="form-label">To</label>
+                                <input type="email" class="form-control" id="to" name="to" placeholder="Enter Recipient's Email">
+                            </div>
+                            <div class="mb-3">
+                                <label for="date" class="form-label">Date</label>
+                                <input type="text" class="form-control" id="date" name="date" placeholder="Enter Date">
+                            </div>
+                            <div class="mb-3">
+                                <label for="subject" class="form-label">Subject</label>
+                                <input type="text" class="form-control" id="subject" name="subject" placeholder="Enter Subject">
+                            </div>
+                            <div class="mb-3">
+                                <label for="body" class="form-label">Body</label>
+                                <textarea class="form-control" id="body" name="body" rows="6" placeholder="Enter Email Body"></textarea>
+                            </div>
+                            <input type="hidden" name="email_id" id="email_id">
+                            <div class="d-flex justify-content-between">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                <div>
+                                    <button type="button" class="btn btn-danger me-2" onclick="deleteEmail()">
+                                        <i class="bi bi-trash"></i> Delete
+                                    </button>
+                                    <button type="button" class="btn btn-primary-custom" onclick="saveChanges()">
+                                        <i class="bi bi-save"></i> Save Changes
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle (Includes Popper) -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js" integrity="sha384-..." crossorigin="anonymous"></script>
+    <script>
+        function navigateToMain() {
+            window.location.href = '/';
+        }
+
+        let currentEmailId = null;
+
+        function populateEditForm(email) {
+            console.log('populateEditForm called with:', email);
+
+            // Store the ID of the email being edited
+            currentEmailId = email.id;
+
+            // Populate the modal fields
+            document.getElementById('tags').value = email.Label || '';
+            document.getElementById('from').value = email.From || '';
+            document.getElementById('to').value = email.To || '';
+            document.getElementById('date').value = email.Date || '';
+            document.getElementById('subject').value = email.Subject || '';
+            document.getElementById('body').value = email.Body || '';
+
+            // Set the hidden email_id field
+            document.getElementById('email_id').value = email.id;
+        }
+
+        function saveChanges() {
+            const form = document.getElementById('editEmailForm');
+            const formData = new FormData(form);
+
+            fetch('/edit-email', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.message || 'Error editing email.');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                alert(data.message);
+                if (data.success) {
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                console.error('Error editing email:', error);
+                alert(error.message || 'An error occurred while editing the email.');
+            });
+        }
+
+        function deleteEmail() {
+            const email_id = currentEmailId;
+            if (confirm("Are you sure you want to delete this email?")) {
+                fetch('/delete-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email_id: email_id })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(data => {
+                            throw new Error(data.message || 'Error deleting email.');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    alert(data.message);
+                    if (data.success) {
+                        location.reload();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error deleting email:', error);
+                    alert(error.message || 'An error occurred while deleting the email.');
+                });
+            }
+        }
+
+        // Handle the saveEmailsForm via AJAX to prevent 405 errors
+        document.getElementById('saveEmailsForm').addEventListener('submit', function(event) {
+            event.preventDefault(); // Prevent the default form submission
+
+            fetch('/save-emails', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({}) // Adjust the body if necessary
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.message || 'Error saving emails.');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                alert(data.message);
+                if (data.success) {
+                    window.location.href = '/'; // Redirect to the main page
+                }
+            })
+            .catch(error => {
+                console.error('Error saving emails:', error);
+                alert(error.message || 'An error occurred while saving emails.');
+            });
+        });
+
+        // Search Functionality with Highlighting
+        function highlight(text, query) {
+            const regex = new RegExp(`(${query})`, 'gi');
+            return text.replace(regex, '<mark>$1</mark>');
+        }
+
+        document.getElementById('searchForm').addEventListener('submit', function(event) {
+            event.preventDefault(); // Prevent default form submission
+
+            const query = document.getElementById('searchQuery').value.trim();
+            if (!query) {
+                alert('Please enter a search query.');
+                return;
+            }
+
+            // Implement client-side search by filtering the table
+            const rows = document.querySelectorAll('table tbody tr');
+            let matches = 0;
+
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                let rowContainsQuery = false;
+
+                cells.forEach(cell => {
+                    const originalText = cell.textContent;
+                    if (originalText.toLowerCase().includes(query.toLowerCase())) {
+                        rowContainsQuery = true;
+                        cell.innerHTML = highlight(originalText, query);
+                    } else {
+                        // Reset cell content if it doesn't match
+                        cell.innerHTML = originalText;
+                    }
+                });
+
+                if (rowContainsQuery) {
+                    row.style.display = '';
+                    matches += 1;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+
+            alert(`Found ${matches} matching emails.`);
+        });
+
+        // Export to CSV Function
+        function exportToCSV() {
+            const emails = {{ emails|tojson }};
+            if (emails.length === 0) {
+                alert('No emails to export.');
+                return;
+            }
+
+            const headers = ["Tags", "From", "To", "Date", "Subject", "Body"];
+            const rows = emails.map(email => [
+                `"${(email.Label || '').replace(/"/g, '""')}"`,
+                `"${(email.From || '').replace(/"/g, '""')}"`,
+                `"${(email.To || '').replace(/"/g, '""')}"`,
+                `"${(email.Date || '').replace(/"/g, '""')}"`,
+                `"${(email.Subject || '').replace(/"/g, '""')}"`,
+                `"${(email.Body || '').replace(/"/g, '""').replace(/<[^>]+>/g, '').substring(0, 100)}..."`
+            ]);
+
+            let csvContent = "data:text/csv;charset=utf-8," 
+                + headers.join(",") + "\n" 
+                + rows.map(e => e.join(",")).join("\n");
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `emails_${hotel_name.replace(/\s+/g, '_')}.csv`);
+            document.body.appendChild(link); // Required for FF
+
+            link.click(); // This will download the data file named "emails_hotelname.csv"
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
