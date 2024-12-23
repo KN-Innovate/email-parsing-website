@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parsed Emails</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* Overall body styling */
+        body {
+            background: linear-gradient(135deg, #2f4b7c, #4e79a7);
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            padding: 0;
+            color: #2f4b7c;
+        }
+
+        /* Container styling */
+        .container {
+            margin-top: 50px;
+            background: #d3f3ee; /* Light teal */
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Header styling */
+        h1 {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #2f4b7c;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        /* Parameter headings and stats styling */
+        .parsed-email-stats p {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #000; /* Black */
+        }
+
+        /* Table styling */
+        table {
+            margin-top: 20px;
+            border-collapse: collapse;
+            color: #2f4b7c;
+        }
+
+        table thead th {
+            background-color: #4e79a7;
+            color: #000; /* Black for headings */
+        }
+
+        table tbody tr {
+            background-color: #cbe9e5;
+        }
+
+        table tbody tr:hover {
+            background-color: #a3d8d4;
+        }
+
+        table th, table td {
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        /* Email body preview */
+        .email-body {
+            max-height: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Buttons */
+        .btn {
+            border-radius: 8px;
+            color: #f8f9fa;
+        }
+
+        .btn-warning {
+            background-color: #f39c12;
+            border-color: #f39c12;
+        }
+
+        .btn-warning:hover {
+            background-color: #e67e22;
+            border-color: #e67e22;
+        }
+
+        .btn-primary {
+            background-color: #4e79a7;
+            border-color: #4e79a7;
+        }
+
+        .btn-primary:hover {
+            background-color: #3c608c;
+            border-color: #3c608c;
+        }
+
+        .btn-secondary {
+            background-color: #637b92;
+            border-color: #637b92;
+        }
+
+        .btn-secondary:hover {
+            background-color: #51697e;
+            border-color: #51697e;
+        }
+
+        .btn-danger {
+            background-color: #e74c3c;
+            border-color: #e74c3c;
+        }
+
+        .btn-danger:hover {
+            background-color: #c0392b;
+            border-color: #c0392b;
+        }
+
+        /* Modal styling */
+        .modal-content {
+            background-color: #d3f3ee;
+            border-radius: 15px;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header, .modal-footer {
+            border: none;
+        }
+
+        .modal-title {
+            color: #2f4b7c;
+        }
+
+        .form-label, .form-control {
+            color: #2f4b7c;
+            background-color: #cbe9e5;
+            border-color: #a3d8d4;
+        }
+
+        .form-control:focus {
+            background-color: #a3d8d4;
+            border-color: #cbe9e5;
+            color: #2f4b7c;
+        }
+
+        .action-btns {
+            margin-top: 20px;
+            display: flex;
+            justify-content: space-between;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Parsed Emails</h1>
+
+        <!-- Number of emails parsed -->
+        <div class="parsed-email-stats mt-4">
+            <p>Emails parsed: <span>0</span></p>
+            <p>PII information removed: <span>0</span></p>
+        </div>
+
+        <!-- Table of parsed emails -->
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th scope="col">Tags</th>
+                    <th scope="col">From</th>
+                    <th scope="col">Date</th>
+                    <th scope="col">Subject</th>
+                    <th scope="col">Body Preview</th>
+                    <th scope="col">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Email rows dynamically generated from backend -->
+                <tr>
+                    <td>--</td>
+                    <td>--</td>
+                    <td>--</td>
+                    <td>--</td>
+                    <td>--</td>
+                    <td>
+                        <button class="btn btn-warning edit-btn" data-bs-toggle="modal" data-bs-target="#editModal">
+                            Edit
+                        </button>
+                    </td>
+                </tr>
+                <!-- Repeat rows as needed -->
+            </tbody>
+        </table>
+
+        <!-- Action buttons -->
+        <div class="action-btns">
+            <button class="btn btn-secondary" onclick="navigateToMain()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveToDatabase()">Save</button>
+        </div>
+
+        <!-- Modal -->
+        <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="editModalLabel">Edit Email</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="editEmailForm" action="/edit-email" method="POST">
+                            <div class="mb-3">
+                                <label for="tags" class="form-label">Tags</label>
+                                <input type="text" class="form-control" id="tags" name="tags">
+                            </div>
+                            <div class="mb-3">
+                                <label for="from" class="form-label">From</label>
+                                <input type="text" class="form-control" id="from" name="from">
+                            </div>
+                            <div class="mb-3">
+                                <label for="date" class="form-label">Date</label>
+                                <input type="text" class="form-control" id="date" name="date">
+                            </div>
+                            <div class="mb-3">
+                                <label for="subject" class="form-label">Subject</label>
+                                <input type="text" class="form-control" id="subject" name="subject">
+                            </div>
+                            <div class="mb-3">
+                                <label for="body" class="form-label">Body</label>
+                                <textarea class="form-control" id="body" name="body" rows="5"></textarea>
+                            </div>
+                            <input type="hidden" name="email_id" id="email_id">
+                            <div class="d-flex justify-content-between">
+                                <button type="submit" class="btn btn-primary" onclick="saveChanges()">Save Changes</button>
+                                <button type="button" class="btn btn-danger" id="deleteButton" onclick="deleteEmail()">Delete</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function saveToDatabase() {
+            alert("Successfully moved to database.");
+            window.location.href = "index.html"; // Redirect to main page
+        }
+
+        function saveChanges() {
+            alert("Successfully moved to database.");
+            window.location.href = "index.html"; // Redirect to main page
+        }
+
+        function navigateToMain() {
+            window.location.href = "index.html"; // Redirect to main page
+        }
+
+        function deleteEmail() {
+            if (confirm("Are you sure you want to delete this email?")) {
+                alert("Email deleted successfully.");
+                window.location.href = "index.html"; // Redirect to main page
+            }
+        }
+    </script>
+</body>
+</html>
