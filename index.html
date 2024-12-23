@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Analyzer | Professional Insights</title>
+    <!-- Include Bootstrap for styling -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* Background styling */
+        body {
+            background: radial-gradient(circle, #4e79a7, #2f4b7c);
+            font-family: 'Poppins', sans-serif;
+            color: #fff;
+            height: 100vh;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Main Heading */
+        .main-heading {
+            font-size: 3rem;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            margin-bottom: 20px;
+        }
+
+        /* Card container */
+        .card-container {
+            max-width: 600px;
+            background: #f9f9f9;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
+            text-align: center;
+        }
+
+        /* Card Header */
+        .card-header {
+            font-size: 1.8rem;
+            color: #4e79a7;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        /* Card description text */
+        .card-container p {
+            font-size: 1rem;
+            color: #666;
+            margin-bottom: 20px;
+        }
+
+        /* Input field */
+        .form-control {
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            padding: 10px;
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background-color: #4e79a7;
+            border-color: #4e79a7;
+            font-size: 18px;
+            padding: 10px 20px;
+            border-radius: 8px;
+        }
+
+        .btn-primary:hover {
+            background-color: #3c608c;
+            border-color: #3c608c;
+        }
+
+        /* Decorative shapes */
+        .decorative-shape {
+            position: absolute;
+            width: 150px;
+            height: 150px;
+            background: linear-gradient(135deg, #4e79a7, #2f4b7c);
+            border-radius: 50%;
+            opacity: 0.1;
+            z-index: -1;
+        }
+
+        .shape-1 {
+            top: -80px;
+            left: -80px;
+        }
+
+        .shape-2 {
+            bottom: -80px;
+            right: -80px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Main Heading -->
+    <div class="main-heading">
+        Email Analyzer
+    </div>
+
+    <!-- Card Container -->
+    <div class="card-container">
+        <div class="decorative-shape shape-1"></div>
+        <div class="decorative-shape shape-2"></div>
+
+        <!-- Header -->
+        <div class="card-header">
+            Upload Your File
+        </div>
+
+        <!-- Description -->
+        <p>Extract insights from your emails quickly and efficiently. Upload your file to get started.</p>
+
+        <!-- Form -->
+        <form id="uploadForm">
+            <div class="mb-4">
+                <input type="file" name="file" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Upload File</button>
+        </form>
+    </div>
+
+    <!-- Include Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', function (event) {
+            event.preventDefault(); // Prevent default form submission
+
+            const formData = new FormData(this);
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData,
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Redirect to the parsed emails page
+                    window.location.href = '/parsed-emails';
+                } else {
+                    alert(data.message || 'File upload failed. Please try again.');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An unexpected error occurred. Please try again.');
+            });
+        });
+    </script>
+</body>
+</html>
