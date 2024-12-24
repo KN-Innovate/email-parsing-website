@@ -1,14 +1,43 @@
-
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify, Response
 from flask_cors import CORS
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 import os
-from werkzeug.utils import secure_filename
 import uuid  # For generating unique IDs
 import mailbox
 import torch
 from transformers import AutoTokenizer, AutoModelForTokenClassification
+from werkzeug.utils import secure_filename 
+from multiprocessing import set_start_method
+from email.header import decode_header, make_header
+from bs4 import BeautifulSoup
+import re
+
+
+def decode_mime_string(value):
+    if not value:
+        return ""
+    try:
+        return str(make_header(decode_header(value)))
+    except:
+        return value
+
+def strip_html(html_text):
+    if not html_text:
+        return ""
+    soup = BeautifulSoup(html_text, "html.parser")
+    text = soup.get_text(separator=" ")
+    text = re.sub(r'\s+', ' ', text)
+    text = text.replace('\xa0', ' ')
+    text = text.replace('&nbsp;', ' ')
+    return text.strip()
+
+# NEW IMPORTS FOR CLEANING HTML
+from bs4 import BeautifulSoup
+import re
+
+# Set multiprocessing start method to avoid semaphore warnings
+set_start_method('spawn', force=True)
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS if needed
@@ -17,7 +46,7 @@ CORS(app)  # Enable CORS if needed
 db_name = "kni"
 collection_name = "MailData"
 
-# Global variables to store parsed emails and PII count
+# Global variables
 parsed_emails = []
 pii_count = 0
 
@@ -27,51 +56,75 @@ model_name = "iiiorg/piiranha-v1-detect-personal-information"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForTokenClassification.from_pretrained(model_name).to(device)
 
+# -------------------------------------------------------------------
+# 1. CONNECT TO MONGODB
+# -------------------------------------------------------------------
 def connect_to_mongodb(db_name, collection_name):
     """
-    Connects to the MongoDB database and returns the collection object.
-    Also ensures necessary indexes are created.
+    Connects to MongoDB and returns the collection.
     """
     try:
-        # MongoDB URI should be stored securely, e.g., as an environment variable
-        # For demonstration, it's hardcoded here (Not recommended for production)
         mongo_uri = "mongodb+srv://kn:akgAjBRLB9rkc26@cluster0.tugfp.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-        if not mongo_uri:
-            raise ValueError("MONGO_URI environment variable not set.")
-        
         client = MongoClient(mongo_uri)
         print("Connected to MongoDB")
         db = client[db_name]
         collection = db[collection_name]
-
-        # Create indexes if they don't exist
-        collection.create_index("hotel_name")
-        collection.create_index("From")
-        collection.create_index("Date")
-
+        collection.create_index("client_name", background=True)
+        collection.create_index("From", background=True)
+        collection.create_index("Date", background=True)
         return collection
     except Exception as e:
         print(f"Error connecting to MongoDB: {e}")
         return None
 
+# -------------------------------------------------------------------
+# 2. CLEAN / STRIP HTML FUNCTION
+# -------------------------------------------------------------------
+def strip_html(html_text):
+    """
+    Removes HTML tags and normalizes whitespace from an HTML string.
+    """
+    if not html_text:
+        return ""
+    # Parse the HTML
+    soup = BeautifulSoup(html_text, "html.parser")
+    # Extract text with spaces separating elements
+    text = soup.get_text(separator=" ")
+    # Remove &nbsp; or other HTML entities and collapse extra whitespace
+    text = re.sub(r'\s+', ' ', text)
+    text = text.replace('\xa0', ' ')
+    text = text.replace('&nbsp;', ' ')
+    return text.strip()
+
+# -------------------------------------------------------------------
+# 3. MASK PII
+# -------------------------------------------------------------------
 def mask_pii(text, aggregate_redaction=True):
     """
     Masks PII in the given text and returns the masked text along with the count of PII redactions.
     """
-    # Tokenize input text
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+    inputs = tokenizer(
+        text,
+        return_tensors="pt",
+        truncation=True,
+        max_length=512,
+        padding=True
+    ).to(device)
 
-    # Get the model predictions
     with torch.no_grad():
         outputs = model(**inputs)
 
-    # Get the predicted labels
     predictions = torch.argmax(outputs.logits, dim=-1)
 
-    # Convert token predictions to word predictions
-    encoded_inputs = tokenizer.encode_plus(text, return_offsets_mapping=True, add_special_tokens=True)
-    offset_mapping = encoded_inputs['offset_mapping']
+    # Ensure offset mapping matches the truncated input
+    encoded_inputs = tokenizer.encode_plus(
+        text, 
+        return_offsets_mapping=True, 
+        add_special_tokens=True, 
+        truncation=True, 
+        max_length=512
+    )
+    offset_mapping = encoded_inputs['offset_mapping'][:len(predictions[0])]
 
     pii_spans = []
     current_pii = None
@@ -79,7 +132,7 @@ def mask_pii(text, aggregate_redaction=True):
 
     for i, (start, end) in enumerate(offset_mapping):
         if start == end:
-            continue  # Special token
+            continue
 
         label = predictions[0][i].item()
         if label != model.config.label2id.get('O', 0):  # Non-O label
@@ -88,20 +141,17 @@ def mask_pii(text, aggregate_redaction=True):
                 current_pii = [start, end]
                 current_pii_type = pii_type
             else:
-                # Check if the current PII type matches
                 if not aggregate_redaction and pii_type != current_pii_type:
                     pii_spans.append(tuple(current_pii))
                     current_pii = [start, end]
                     current_pii_type = pii_type
                 else:
-                    # Extend the current PII span
                     current_pii[1] = end
         else:
             if current_pii:
                 pii_spans.append(tuple(current_pii))
                 current_pii = None
 
-    # Handle case where PII is at the end of the text
     if current_pii:
         pii_spans.append(tuple(current_pii))
 
@@ -110,12 +160,14 @@ def mask_pii(text, aggregate_redaction=True):
     for start, end in reversed(pii_spans):
         masked_text = masked_text[:start] + '[redacted]' + masked_text[end:]
 
-    pii_count = len(pii_spans)
-    return masked_text, pii_count
+    return masked_text, len(pii_spans)
 
+# -------------------------------------------------------------------
+# 4. GET EMAIL BODY
+# -------------------------------------------------------------------
 def get_email_body(message):
     """
-    Extracts the body content of an email.
+    Extracts the body content of an email as text (plain or HTML).
     """
     try:
         if message.is_multipart():
@@ -131,175 +183,159 @@ def get_email_body(message):
         print(f"Error extracting email body: {e}")
         return None
 
-def parse_mbox(file_path, hotel_name):
+# In-memory registry of uploads
+file_registry = {}  # e.g. { client_name: "/tmp/filename" }
+
+# -------------------------------------------------------------------
+# 5. UPLOAD ROUTE
+# -------------------------------------------------------------------
+@app.route('/upload', methods=['POST'])
+def upload_file():
     """
-    Parses the MBOX file and extracts email details along with PII redaction count.
-    Associates each email with a specific hotel using hotel_name.
+    Saves the uploaded file to a temporary location and returns JSON with client_name.
+    The actual parsing is handled in /progress via SSE.
     """
     try:
-        print("Parsing MBOX file...")
-        mbox = mailbox.mbox(file_path)
+        file = request.files.get('file')
+        client_name = request.form.get('client_name')
+
+        if not client_name:
+            return jsonify({"success": False, "message": "Client name is required."}), 400
+        if not file:
+            return jsonify({"success": False, "message": "No file uploaded."}), 400
+
+        # Normalize client_name
+        client_name = client_name.strip()
+        filename = secure_filename(file.filename)
+        filepath = os.path.join('/tmp', filename)
+        file.save(filepath)
+
+        # Track the file path by client_name
+        file_registry[client_name] = filepath
+
+        return jsonify({"success": True, "client_name": client_name})
     except Exception as e:
-        print(f"Error loading MBOX file: {e}")
-        return [], 0
+        return jsonify({"success": False, "message": str(e)}), 500
 
-    email_data = []
-    total_pii_count = 0
+# -------------------------------------------------------------------
+# 6. PROGRESS ROUTE (SSE)
+# -------------------------------------------------------------------
+@app.route('/progress', methods=['GET'])
+def progress():
+    """
+    Streams parsing progress in real-time using SSE (Server-Sent Events).
+    """
+    def generate_progress(client_name):
+        global parsed_emails, pii_count
+        parsed_emails = []
+        pii_count = 0
 
-    for message in mbox:
+        filepath = file_registry.get(client_name)
+        if not filepath:
+            yield "data: error - No file found for this client.\n\n"
+            return
+
+        # Parse the MBOX file
         try:
-            body = get_email_body(message)
-            if not body:
-                continue
-
-            # Mask PII in the email body
-            body_filtered, pii_in_email = mask_pii(body, aggregate_redaction=False)
-            total_pii_count += pii_in_email
-
-            email_info = {
-                "id": str(uuid.uuid4()),  # Assign a unique ID
-                "hotel_name": hotel_name, # Associate with hotel
-                "Label": message["X-Gmail-Labels"],
-                "From": message["from"],
-                "To": message["to"],      # Ensure 'To' field is captured
-                "Date": message["date"],
-                "Subject": message["subject"],
-                "Body": body_filtered,
-            }
-            email_data.append(email_info)
+            mbox = mailbox.mbox(filepath)
         except Exception as e:
-            print(f"Error processing message: {e}")
+            yield f"data: error - Could not load MBOX: {str(e)}\n\n"
+            return
 
-    return email_data, total_pii_count  # Return after processing all emails
+        total_emails = len(mbox)
+        if total_emails == 0:
+            yield "data: error - MBOX file is empty.\n\n"
+            return
 
-# Route for the main page
+        for index, message in enumerate(mbox, start=1):
+            try:
+                # 1. Decode each header
+                subject_decoded = decode_mime_string(message.get("subject"))
+                from_decoded = decode_mime_string(message.get("from"))
+                date_decoded = decode_mime_string(message.get("date"))
+                label_decoded = decode_mime_string(message.get("X-Gmail-Labels"))
+
+                # 2. Extract and clean Body
+                raw_body = get_email_body(message)
+                if not raw_body:
+                    continue
+                clean_body = strip_html(raw_body)  # remove HTML tags, etc.
+
+                # 3. Mask PII
+                body_filtered, pii_in_email = mask_pii(clean_body, aggregate_redaction=False)
+                pii_count += pii_in_email
+
+                # 4. Build email_info dictionary
+                email_info = {
+                    "id": str(uuid.uuid4()),
+                    "client_name": client_name,
+                    "Label": label_decoded,
+                    "From": from_decoded,
+                    "Date": date_decoded,
+                    "Subject": subject_decoded,
+                    "Body": body_filtered,
+                }
+                parsed_emails.append(email_info)
+
+            except Exception as exc:
+                yield f"data: error - {str(exc)}\n\n"
+
+            # Send progress update
+            yield f"data: {index}/{total_emails}\n\n"
+
+        yield "data: completed\n\n"
+
+    client_name = request.args.get('client_name')
+    if not client_name:
+        return "Client name is required.", 400
+
+    return Response(generate_progress(client_name), mimetype='text/event-stream')
+
+# -------------------------------------------------------------------
+# 7. VIEW PARSED EMAILS
+# -------------------------------------------------------------------
+@app.route('/parsed-emails')
+def parsed_emails_page():
+    client_name = request.args.get('client_name')
+    if not client_name:
+        return "Client name not provided.", 400
+
+    filtered = [e for e in parsed_emails if e['client_name'] == client_name]
+    count_redacted = sum(e['Body'].count('[redacted]') for e in filtered)
+
+    return render_template(
+        'parsed-emails.html',
+        emails=filtered,
+        pii_count=count_redacted,
+        client_name=client_name
+    )
+
+# -------------------------------------------------------------------
+# 8. SAVE TO DATABASE (OPTIONAL)
+# -------------------------------------------------------------------
+@app.route('/save-emails', methods=['POST'])
+def save_emails():
+    global parsed_emails, pii_count
+    try:
+        coll = connect_to_mongodb(db_name, collection_name)
+        if coll is not None and parsed_emails:
+            coll.insert_many(parsed_emails)
+            parsed_emails.clear()
+            pii_count = 0
+            return jsonify({"success": True, "message": "Emails saved to database."})
+        return jsonify({"success": False, "message": "No emails to save."}), 400
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+# -------------------------------------------------------------------
+# 9. INDEX PAGE
+# -------------------------------------------------------------------
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# Route for the parsed emails page
-@app.route('/parsed-emails')
-def parsed_emails_page():
-    hotel_name = request.args.get('hotel_name')
-    if not hotel_name:
-        return "Hotel name not provided.", 400
-
-    # Filter emails based on hotel_name
-    filtered_emails = [email for email in parsed_emails if email['hotel_name'] == hotel_name]
-    total = len(filtered_emails)
-
-    # Calculate PII count for the filtered emails
-    pii_count = sum(email['Body'].count('[redacted]') for email in filtered_emails)
-
-    return render_template('parsed-emails.html', 
-                           emails=filtered_emails, 
-                           pii_count=pii_count, 
-                           hotel_name=hotel_name)
-
-# Route to handle file uploads
-@app.route('/upload', methods=['POST'])
-def upload_file():
-    global parsed_emails
-    global pii_count
-    try:
-        file = request.files['file']
-        hotel_name = request.form.get('hotel_name')
-        if not hotel_name:
-            return jsonify({"success": False, "message": "Hotel name is required."}), 400
-        
-        if file:
-            # Sanitize hotel_name
-            hotel_name = hotel_name.strip()
-            if not hotel_name:
-                return jsonify({"success": False, "message": "Hotel name cannot be empty."}), 400
-
-            # Check for duplicate hotel_name in parsed_emails
-            existing_hotel = any(email['hotel_name'] == hotel_name for email in parsed_emails)
-            if existing_hotel:
-                # Append a unique identifier to hotel_name
-                unique_identifier = str(uuid.uuid4())[:8]
-                hotel_name = f"{hotel_name}_{unique_identifier}"
-                print(f"Duplicate hotel name detected. Renamed to {hotel_name}")
-
-            # Save the uploaded file to a temporary location
-            filename = secure_filename(file.filename)
-            filepath = os.path.join('/tmp', filename)
-            file.save(filepath)
-            
-            # Parse the MBOX file and mask PII
-            parsed_emails, pii_count = parse_mbox(filepath, hotel_name)
-
-            print(f"Parsed {len(parsed_emails)} emails with {pii_count} PII redactions.")
-
-            # Return JSON response instead of redirect
-            return jsonify({"success": True, "hotel_name": hotel_name})
-        else:
-            return jsonify({"success": False, "message": "No file uploaded."}), 400
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-# Route to save parsed emails to MongoDB
-@app.route('/save-emails', methods=['POST'])
-def save_emails():
-    global parsed_emails
-    global pii_count
-    try:
-        collection = connect_to_mongodb(db_name, collection_name)
-        if collection is not None:
-            if parsed_emails:
-                # Insert parsed emails into MongoDB
-                collection.insert_many(parsed_emails)
-                parsed_emails = []  # Clear temporary storage after saving
-                pii_count = 0
-                return jsonify({"success": True, "message": "Emails saved to database."})
-            else:
-                return jsonify({"success": False, "message": "No emails to save."})
-        else:
-            return jsonify({"success": False, "message": "Database connection failed."}), 500
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-# Route to edit an email in the parsed_emails list
-@app.route('/edit-email', methods=['POST'])
-def edit_email():
-    global parsed_emails
-    try:
-        # Get form data
-        email_id = request.form['email_id']
-        updated_data = {
-            "Label": request.form.get('tags', ''),
-            "From": request.form.get('from', ''),
-            "To": request.form.get('to', ''),
-            "Date": request.form.get('date', ''),
-            "Subject": request.form.get('subject', ''),
-            "Body": request.form.get('body', ''),
-        }
-
-        # Find the email by ID and update it
-        for email in parsed_emails:
-            if email['id'] == email_id:
-                email.update(updated_data)
-                return jsonify({"success": True, "message": "Email updated successfully."})
-
-        return jsonify({"success": False, "message": "Email not found."}), 404
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
-# Route to delete an email from the parsed_emails list
-@app.route('/delete-email', methods=['POST'])
-def delete_email():
-    global parsed_emails
-    try:
-        data = request.get_json()
-        email_id = data['email_id']
-        # Find the email by ID and remove it
-        for index, email in enumerate(parsed_emails):
-            if email['id'] == email_id:
-                del parsed_emails[index]
-                return jsonify({"success": True, "message": "Email deleted successfully."})
-        return jsonify({"success": False, "message": "Email not found."}), 404
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)}), 500
-
+# -------------------------------------------------------------------
+# 10. RUN THE APP
+# -------------------------------------------------------------------
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=8000)

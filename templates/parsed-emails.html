@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Parsed Emails for {{ hotel_name }}</title>
+    <title>Parsed Emails for {{ client_name }}</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-..." crossorigin="anonymous">
     <!-- Bootstrap Icons -->
@@ -55,7 +55,7 @@
     <div class="container mt-4">
         <!-- Header Section -->
         <div class="header-section text-center">
-            <h1>Parsed Emails for "{{ hotel_name }}"</h1>
+            <h1>Parsed Emails for "{{ client_name }}"</h1>
             <div class="parsed-email-stats d-flex justify-content-center">
                 <div class="me-4">
                     <p><strong>Emails Parsed:</strong> {{ emails|length }}</p>
@@ -92,7 +92,6 @@
                     <tr>
                         <th scope="col">Tags</th>
                         <th scope="col">From</th>
-                        <th scope="col">To</th>
                         <th scope="col">Date</th>
                         <th scope="col">Subject</th>
                         <th scope="col">Body Preview</th>
@@ -104,7 +103,6 @@
                     <tr>
                         <td>{{ email.Label }}</td>
                         <td>{{ email.From }}</td>
-                        <td>{{ email.To }}</td>
                         <td>{{ email.Date }}</td>
                         <td>{{ email.Subject }}</td>
                         <td class="email-body">{{ email.Body[:50] }}...</td>
@@ -195,7 +193,6 @@
             // Populate the modal fields
             document.getElementById('tags').value = email.Label || '';
             document.getElementById('from').value = email.From || '';
-            document.getElementById('to').value = email.To || '';
             document.getElementById('date').value = email.Date || '';
             document.getElementById('subject').value = email.Subject || '';
             document.getElementById('body').value = email.Body || '';
@@ -362,10 +359,10 @@
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `emails_${hotel_name.replace(/\s+/g, '_')}.csv`);
+            link.setAttribute("download", `emails_${client_name.replace(/\s+/g, '_')}.csv`);
             document.body.appendChild(link); // Required for FF
 
-            link.click(); // This will download the data file named "emails_hotelname.csv"
+            link.click(); // This will download the data file named "emails_clientname.csv"
             document.body.removeChild(link);
         }
     </script>
